@@ -1,0 +1,301 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── ENUMS ───────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  CUSTOMER
+  STAFF
+  ADMIN
+}
+
+enum AppointmentStatus {
+  PENDING
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum PaymentStatus {
+  UNPAID
+  DEPOSIT_PAID
+  FULLY_PAID
+  REFUNDED
+}
+
+enum PaymentType {
+  DEPOSIT
+  FULL
+  REFUND
+}
+
+enum NotifType {
+  BOOKING_CREATED
+  BOOKING_CANCELLED
+  BOOKING_RESCHEDULED
+  PAYMENT_CONFIRMED
+  PAYMENT_FAILED
+  STATUS_UPDATED
+}
+
+enum ActivityAction {
+  BOOKING_CREATED
+  BOOKING_CANCELLED
+  BOOKING_RESCHEDULED
+  PAYMENT_CONFIRMED
+  PAYMENT_FAILED
+  STATUS_UPDATED
+}
+
+enum ReminderType {
+  HOURS_24
+  HOURS_2
+  CUSTOM
+}
+
+// ─── MODELS ──────────────────────────────────────────────────────────────────
+
+model Business {
+  id                   String    @id @default(cuid())
+  name                 String
+  description          String?
+  logoUrl              String?
+  address              String?
+  phone                String?
+  email                String?
+  timezone             String    @default("UTC")
+  slotIntervalMinutes  Int       @default(15)
+  bufferMinutes        Int       @default(0)
+  cancellationHours    Int       @default(24)
+  depositPercent       Decimal   @default(0) @db.Decimal(5, 2)
+  createdAt            DateTime  @default(now())
+
+  services             Service[]
+  serviceCategories    ServiceCategory[]
+  staffProfiles        StaffProfile[]
+  appointments         Appointment[]
+}
+
+model User {
+  id                       String    @id @default(cuid())
+  email                    String    @unique
+  password                 String
+  name                     String
+  phone                    String?
+  role                     UserRole  @default(CUSTOMER)
+  avatarUrl                String?
+  emailVerified            Boolean   @default(false)
+  emailVerificationToken   String?
+  emailVerificationExpiry  DateTime?
+  passwordResetToken       String?
+  passwordResetExpiry      DateTime?
+  failedLoginAttempts      Int       @default(0)
+  lockedUntil              DateTime?
+  deletedAt                DateTime?
+  createdAt                DateTime  @default(now())
+
+  staffProfile             StaffProfile?
+  appointments             Appointment[]
+  reviews                  Review[]
+  notifications            Notification[]
+  activityLogs             ActivityLog[]
+}
+
+model ServiceCategory {
+  id          String    @id @default(cuid())
+  businessId  String
+  name        String
+  color       String?
+  deletedAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  business    Business  @relation(fields: [businessId], references: [id])
+  services    Service[]
+}
+
+model Service {
+  id              String    @id @default(cuid())
+  businessId      String
+  categoryId      String?
+  name            String
+  description     String?
+  durationMinutes Int
+  price           Decimal   @db.Decimal(10, 2)
+  depositAmount   Decimal?  @db.Decimal(10, 2)
+  isActive        Boolean   @default(true)
+  imageUrl        String?
+  deletedAt       DateTime?
+  createdAt       DateTime  @default(now())
+
+  business        Business         @relation(fields: [businessId], references: [id])
+  category        ServiceCategory? @relation(fields: [categoryId], references: [id])
+  staffServices   StaffService[]
+  appointments    Appointment[]
+  reviews         Review[]
+}
+
+model StaffProfile {
+  id          String    @id @default(cuid())
+  userId      String    @unique
+  businessId  String
+  bio         String?
+  avatarUrl   String?
+  title       String?
+  deletedAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  user          User           @relation(fields: [userId], references: [id])
+  business      Business       @relation(fields: [businessId], references: [id])
+  staffServices StaffService[]
+  workingHours  WorkingHours[]
+  blockedTimes  BlockedTime[]
+  appointments  Appointment[]
+  reviews       Review[]
+}
+
+model StaffService {
+  id             String       @id @default(cuid())
+  staffProfileId String
+  serviceId      String
+
+  staffProfile   StaffProfile @relation(fields: [staffProfileId], references: [id])
+  service        Service      @relation(fields: [serviceId], references: [id])
+
+  @@unique([staffProfileId, serviceId])
+}
+
+model WorkingHours {
+  id             String       @id @default(cuid())
+  staffProfileId String
+  dayOfWeek      Int          // 0 = Sunday, 6 = Saturday
+  startTime      String       // "09:00"
+  endTime        String       // "18:00"
+  isWorkingDay   Boolean      @default(true)
+
+  staffProfile   StaffProfile @relation(fields: [staffProfileId], references: [id])
+
+  @@unique([staffProfileId, dayOfWeek])
+}
+
+model BlockedTime {
+  id             String       @id @default(cuid())
+  staffProfileId String
+  startAt        DateTime
+  endAt          DateTime
+  reason         String?
+  deletedAt      DateTime?
+  createdAt      DateTime     @default(now())
+
+  staffProfile   StaffProfile @relation(fields: [staffProfileId], references: [id])
+}
+
+model Appointment {
+  id                    String            @id @default(cuid())
+  serviceId             String
+  staffProfileId        String
+  customerId            String
+  businessId            String
+  startAt               DateTime
+  endAt                 DateTime
+  status                AppointmentStatus @default(PENDING)
+  notes                 String?
+  totalAmount           Decimal           @db.Decimal(10, 2)
+  depositAmount         Decimal?          @db.Decimal(10, 2)
+  paymentStatus         PaymentStatus     @default(UNPAID)
+  stripePaymentIntentId String?
+  pendingExpiresAt      DateTime?
+  cancellationReason    String?
+  rescheduledFromId     String?
+  createdAt             DateTime          @default(now())
+
+  service               Service           @relation(fields: [serviceId], references: [id])
+  staffProfile          StaffProfile      @relation(fields: [staffProfileId], references: [id])
+  customer              User              @relation(fields: [customerId], references: [id])
+  business              Business          @relation(fields: [businessId], references: [id])
+  rescheduledFrom       Appointment?      @relation("RescheduledFrom", fields: [rescheduledFromId], references: [id])
+  rescheduledTo         Appointment[]     @relation("RescheduledFrom")
+  payments              Payment[]
+  reminders             AppointmentReminder[]
+  review                Review?
+  notifications         Notification[]
+  activityLogs          ActivityLog[]
+
+  @@index([staffProfileId, startAt, status])
+  @@index([customerId, status])
+  @@index([businessId, startAt])
+}
+
+model Payment {
+  id                    String      @id @default(cuid())
+  appointmentId         String
+  amount                Decimal     @db.Decimal(10, 2)
+  type                  PaymentType
+  stripePaymentIntentId String?
+  status                String
+  createdAt             DateTime    @default(now())
+
+  appointment           Appointment @relation(fields: [appointmentId], references: [id])
+}
+
+model AppointmentReminder {
+  id            String       @id @default(cuid())
+  appointmentId String
+  type          ReminderType
+  scheduledAt   DateTime
+  sentAt        DateTime?
+
+  appointment   Appointment  @relation(fields: [appointmentId], references: [id])
+}
+
+model Review {
+  id             String       @id @default(cuid())
+  appointmentId  String       @unique
+  customerId     String
+  staffProfileId String
+  serviceId      String
+  rating         Int          // 1–5
+  comment        String?
+  createdAt      DateTime     @default(now())
+
+  appointment    Appointment  @relation(fields: [appointmentId], references: [id])
+  customer       User         @relation(fields: [customerId], references: [id])
+  staffProfile   StaffProfile @relation(fields: [staffProfileId], references: [id])
+  service        Service      @relation(fields: [serviceId], references: [id])
+}
+
+model Notification {
+  id            String     @id @default(cuid())
+  userId        String
+  type          NotifType
+  title         String
+  body          String
+  appointmentId String?
+  isRead        Boolean    @default(false)
+  readAt        DateTime?
+  createdAt     DateTime   @default(now())
+
+  user          User        @relation(fields: [userId], references: [id])
+  appointment   Appointment? @relation(fields: [appointmentId], references: [id])
+}
+
+model ActivityLog {
+  id            String         @id @default(cuid())
+  actorId       String
+  actorRole     UserRole
+  action        ActivityAction
+  appointmentId String?
+  before        Json?
+  after         Json?
+  ipAddress     String?
+  createdAt     DateTime       @default(now())
+
+  actor         User           @relation(fields: [actorId], references: [id])
+  appointment   Appointment?   @relation(fields: [appointmentId], references: [id])
+}
