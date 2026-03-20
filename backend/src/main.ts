@@ -1,26 +1,26 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
+import cookieParser = require('cookie-parser');
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  // Global prefix for all routes
   app.setGlobalPrefix('api');
 
-  // Global validation pipe
+  app.use(cookieParser());
+
   app.useGlobalPipes(
     new ValidationPipe({
-      whitelist: true,        // strip unknown properties
+      whitelist: true,
       forbidNonWhitelisted: true,
-      transform: true,        // auto-transform payloads to DTO types
+      transform: true,
     }),
   );
 
-  // CORS — allow frontend
   app.enableCors({
     origin: process.env.FRONTEND_URL ?? 'http://localhost:3000',
-    credentials: true,        // needed for HttpOnly cookie (refresh token)
+    credentials: true,
   });
 
   const port = process.env.PORT ?? 4000;
